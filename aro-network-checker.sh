@@ -2,6 +2,7 @@
 #
 # ARO Diagnostic Data Collection Script
 # Built with assistance from Claude (claude.ai)
+# Based on https://github.com/rh-mobb/aro-network-diagnostics
 #
 # Usage:
 #   As a standalone script (with az CLI already authenticated):
@@ -33,13 +34,13 @@ fi
 # CONFIGURATION — Set via environment variables
 # ──────────────────────────────────────────────────────────────
 
-RESOURCE_GROUP="${RESOURCE_GROUP:-}"
-VNET_NAME="${VNET_NAME:-}"
-MASTER_SUBNET_NAME="${MASTER_SUBNET_NAME:-}"
-WORKER_SUBNET_NAME="${WORKER_SUBNET_NAME:-}"
-REGION="${REGION:-}"
+: "${RESOURCE_GROUP:?Environment variable RESOURCE_GROUP must be set}"
+: "${VNET_NAME:?Environment variable VNET_NAME must be set}"
+: "${MASTER_SUBNET_NAME:?Environment variable MASTER_SUBNET_NAME must be set}"
+: "${WORKER_SUBNET_NAME:?Environment variable WORKER_SUBNET_NAME must be set}"
+: "${REGION:?Environment variable REGION must be set}"
 
-# Optional — fill in if you know the firewall details
+# Optional variables
 FIREWALL_RG="${FIREWALL_RG:-}"
 FIREWALL_NAME="${FIREWALL_NAME:-}"
 ARO_SUBNET_PREFIX="${ARO_SUBNET_PREFIX:-}"
@@ -84,13 +85,15 @@ extract_rg() {
 echo "ARO Diagnostic Data Collection"
 echo "Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "Subscription: $(az account show --query '{Name:name, Id:id}' -o json 2>/dev/null || echo 'unable to determine')"
-
-# ── Validate configuration ──
-if [[ -z "$RESOURCE_GROUP" || -z "$VNET_NAME" || -z "$MASTER_SUBNET_NAME" || -z "$WORKER_SUBNET_NAME" ]]; then
-    echo ""
-    echo "ERROR: Please set the required environment variables before running."
-    echo "Required: RESOURCE_GROUP, VNET_NAME, MASTER_SUBNET_NAME, WORKER_SUBNET_NAME"
-    exit 1
+echo ""
+echo "Configuration:"
+echo "  Resource Group: $RESOURCE_GROUP"
+echo "  VNet: $VNET_NAME"
+echo "  Master Subnet: $MASTER_SUBNET_NAME"
+echo "  Worker Subnet: $WORKER_SUBNET_NAME"
+echo "  Region: $REGION"
+if [[ -n "$FIREWALL_NAME" ]]; then
+    echo "  Firewall: $FIREWALL_NAME (RG: $FIREWALL_RG)"
 fi
 
 # ══════════════════════════════════════════════════════════
@@ -138,13 +141,33 @@ header "3. Private DNS Zones"
 run_cmd "All Private DNS zones in subscription" \
     az network private-dns zone list --query "[].{Name:name, ResourceGroup:resourceGroup}" -o table
 
-run_cmd "Private DNS zone links for privatelink.azurecr.io" \
-    az network private-dns link vnet list --resource-group "$RESOURCE_GROUP" \
-    --zone-name privatelink.azurecr.io -o table
+# Get all private DNS zones in the resource group and show their VNet links
+echo "--- Private DNS Zone VNet Links ---"
+ZONES=$(az network private-dns zone list --resource-group "$RESOURCE_GROUP" --query "[].name" -o tsv 2>/dev/null || echo "")
 
-run_cmd "Private DNS zone links for privatelink.openshift.io" \
-    az network private-dns link vnet list --resource-group "$RESOURCE_GROUP" \
-    --zone-name privatelink.openshift.io -o table
+if [[ -n "$ZONES" ]]; then
+    while IFS= read -r zone_name; do
+        if [[ -n "$zone_name" ]]; then
+            run_cmd "VNet links for zone: $zone_name" \
+                az network private-dns link vnet list --resource-group "$RESOURCE_GROUP" \
+                --zone-name "$zone_name" -o table
+        fi
+    done <<< "$ZONES"
+else
+    echo "No private DNS zones found in resource group $RESOURCE_GROUP"
+    echo ""
+fi
+
+# Check for common privatelink zones that might be in other resource groups
+for zone_name in "privatelink.azurecr.io" "privatelink.openshift.io"; do
+    ZONE_RG=$(az network private-dns zone list --query "[?name=='$zone_name'].resourceGroup | [0]" -o tsv 2>/dev/null || echo "")
+    if [[ -n "$ZONE_RG" && "$ZONE_RG" != "$RESOURCE_GROUP" ]]; then
+        echo "--- VNet links for $zone_name (in $ZONE_RG) ---"
+        az network private-dns link vnet list --resource-group "$ZONE_RG" \
+            --zone-name "$zone_name" -o table 2>&1 || echo "(unable to retrieve)"
+        echo ""
+    fi
+done
 
 # ══════════════════════════════════════════════════════════
 header "4. Route Tables (UDR)"
