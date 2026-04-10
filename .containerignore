@@ -1,0 +1,6 @@
+deploy.sh
+CLAUDE.md
+.git
+.dockerignore
+*.txt
+*.md

@@ -1,0 +1,15 @@
+# Diagnostic output files
+aro-diagnostics-*.txt
+
+# Environment/secrets
+.env
+*.pem
+*.key
+credentials.*
+
+# OS files
+.DS_Store
+
+# Editor/IDE
+.vscode/
+.idea/
