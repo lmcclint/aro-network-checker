@@ -213,6 +213,11 @@ fi
 
 log "Prerequisites validated."
 
+# Register cleanup trap — runs on any exit (error, interrupt, or normal)
+CLEANUP_ENABLED=true
+trap 'if [[ "$CLEANUP_ENABLED" == "true" ]]; then CLEANUP_ENABLED=false; echo ""; cleanup; fi' EXIT
+trap 'exit 130' INT TERM
+
 # ──────────────────────────────────────────────────────────────
 # Step 2: Prepare ACI subnet
 # ──────────────────────────────────────────────────────────────
@@ -267,11 +272,6 @@ else
     CREATED_SUBNET=true
     log "  ACI subnet created."
 fi
-
-# Register cleanup trap — runs on any exit (error, interrupt, or normal)
-CLEANUP_ENABLED=true
-trap 'if [[ "$CLEANUP_ENABLED" == "true" ]]; then CLEANUP_ENABLED=false; echo ""; cleanup; fi' EXIT
-trap 'exit 130' INT TERM
 
 # ──────────────────────────────────────────────────────────────
 # Step 3: Create managed identity
