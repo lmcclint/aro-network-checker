@@ -7,6 +7,9 @@ aro-diagnostics-*.txt
 *.key
 credentials.*
 
+# Planning artifacts
+.planning/
+
 # OS files
 .DS_Store
 
